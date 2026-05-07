@@ -1,6 +1,7 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { MMKV } from "react-native-mmkv";
 import { create } from "zustand";
 
+const storage = new MMKV();
 const CACHE_KEY = "cachedPlaylists";
 const LAST_SYNC_KEY = "lastPlaylistSync";
 
@@ -56,8 +57,10 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
       ...p,
       updatedAt: timestamp,
     }));
-    await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(playlistsWithTime));
-    await AsyncStorage.setItem(LAST_SYNC_KEY, Date.now().toString());
+    
+    storage.set(CACHE_KEY, JSON.stringify(playlistsWithTime));
+    storage.set(LAST_SYNC_KEY, Date.now().toString());
+    
     set({
       playlists: playlistsWithTime,
       isLoading: false,
@@ -70,7 +73,7 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   nextItem: () => {
     const state = get();
     const currentPlaylist = state.playlists[state.currentPlaylistIndex];
-    if (!currentPlaylist) return;
+    if (!currentPlaylist || currentPlaylist.items.length === 0) return;
 
     const nextIndex =
       (state.currentItemIndex + 1) % currentPlaylist.items.length;
@@ -80,7 +83,7 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   previousItem: () => {
     const state = get();
     const currentPlaylist = state.playlists[state.currentPlaylistIndex];
-    if (!currentPlaylist) return;
+    if (!currentPlaylist || currentPlaylist.items.length === 0) return;
 
     const prevIndex =
       state.currentItemIndex === 0
@@ -109,8 +112,9 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
 
   loadFromCache: async () => {
     try {
-      const cached = await AsyncStorage.getItem(CACHE_KEY);
-      const lastSync = await AsyncStorage.getItem(LAST_SYNC_KEY);
+      const cached = storage.getString(CACHE_KEY);
+      const lastSync = storage.getString(LAST_SYNC_KEY);
+      
       if (cached) {
         set({
           playlists: JSON.parse(cached),
@@ -124,8 +128,8 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   },
 
   clearCache: async () => {
-    await AsyncStorage.removeItem(CACHE_KEY);
-    await AsyncStorage.removeItem(LAST_SYNC_KEY);
+    storage.delete(CACHE_KEY);
+    storage.delete(LAST_SYNC_KEY);
     set({ playlists: [], lastSyncTime: null });
   },
 

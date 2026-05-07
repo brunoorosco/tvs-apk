@@ -102,6 +102,8 @@ export const deviceApi = {
 
   getStorageInfo: () => api.get("/devices/storage"),
 
+  getSyncConfig: () => api.get("/devices/sync-config"),
+
   reportError: (error: any) =>
     api.post("/devices/error", {
       message: error.message,
