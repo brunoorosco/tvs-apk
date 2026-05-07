@@ -9,6 +9,7 @@ interface DeviceState {
   isPaired: boolean;
   deviceToken: string | null;
   deviceId: string | null;
+  deviceUid: string | null;
   deviceName: string | null;
   pairingCode: string;
   autoStartEnabled: boolean;
@@ -17,12 +18,16 @@ interface DeviceState {
   clearPairing: () => void;
   loadFromStorage: () => Promise<void>;
   setAutoStart: (enabled: boolean) => Promise<void>;
+  getOrGenerateUid: () => Promise<string>;
 }
 
-export const useDeviceStore = create<DeviceState>((set) => ({
+const DEVICE_UID_KEY = "deviceUid";
+
+export const useDeviceStore = create<DeviceState>((set, get) => ({
   isPaired: false,
   deviceToken: null,
   deviceId: null,
+  deviceUid: null,
   deviceName: null,
   pairingCode: "",
   autoStartEnabled: true,
@@ -53,6 +58,10 @@ export const useDeviceStore = create<DeviceState>((set) => ({
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
       const deviceId = await SecureStore.getItemAsync(DEVICE_ID_KEY);
       const deviceName = await SecureStore.getItemAsync(DEVICE_NAME_KEY);
+      const deviceUid = await SecureStore.getItemAsync(DEVICE_UID_KEY);
+      
+      set({ deviceUid });
+
       if (token && deviceId) {
         set({ isPaired: true, deviceToken: token, deviceId, deviceName });
       }
@@ -63,5 +72,27 @@ export const useDeviceStore = create<DeviceState>((set) => ({
 
   setAutoStart: async (enabled) => {
     set({ autoStartEnabled: enabled });
+  },
+
+  getOrGenerateUid: async () => {
+    const existingUid = get().deviceUid;
+    if (existingUid) return existingUid;
+
+    const storedUid = await SecureStore.getItemAsync(DEVICE_UID_KEY);
+    if (storedUid) {
+      set({ deviceUid: storedUid });
+      return storedUid;
+    }
+
+    // Gerar novo UID (usando um gerador simples se crypto.randomUUID não estiver disponível)
+    const newUid = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+
+    await SecureStore.setItemAsync(DEVICE_UID_KEY, newUid);
+    set({ deviceUid: newUid });
+    return newUid;
   },
 }));

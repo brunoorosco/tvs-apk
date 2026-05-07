@@ -30,15 +30,16 @@ export default function PairingScreen() {
     setError("");
 
     // Gerar código de 6 dígitos localmente
-    const newCode = Math.floor(10000 + Math.random() * 900000).toString();
+    const newCode = Math.floor(100000 + Math.random() * 900000).toString();
     setPairingCode(newCode);
 
     try {
+      const { getOrGenerateUid } = useDeviceStore.getState();
+      const deviceUid = await getOrGenerateUid();
+
       const deviceInfo = {
-        model: "Android TV",
-        platform: "android-tv",
-        version: "1.0.0",
-        appVersion: "1.0.0",
+        deviceUid: deviceUid,
+        model: "TV-Simulator", // Conforme exemplo
       };
 
       // Registrar o código gerado no servidor
@@ -50,7 +51,7 @@ export default function PairingScreen() {
     } catch (err: any) {
       console.error("Erro ao registrar código:", err);
       setError("Erro ao registrar no servidor. Tentando novamente em 10s...");
-      setTimeout(startPairingProcess, 100000);
+      setTimeout(startPairingProcess, 600000);
     }
   };
 
@@ -61,12 +62,24 @@ export default function PairingScreen() {
       try {
         const { data } = await deviceApi.checkPairingStatus(code);
 
-        if (data.status === "paired" && data.deviceToken) {
+        // O backend retorna { paired: true, deviceUid: "..." }
+        if (data.paired === true) {
+          console.log("🎯 Pareamento detectado com sucesso!");
           if (pollingInterval.current) clearInterval(pollingInterval.current);
 
-          const deviceName =
-            data.deviceName || `TV-${data.deviceId.slice(0, 8)}`;
-          await setPaired(data.deviceToken, data.deviceId, deviceName);
+          const deviceId = data.deviceUid;
+          const deviceName = data.deviceName || `TV-${deviceId.slice(0, 8)}`;
+          
+          // Se o backend não retornar um token específico, usamos o deviceUid
+          const token = data.deviceToken || deviceId;
+          
+          console.log("💾 Salvando dados do dispositivo...", { deviceId, token });
+          try {
+            await setPaired(token, deviceId, deviceName);
+            console.log("✅ Dados salvos! A tela deve mudar agora.");
+          } catch (saveError) {
+            console.error("❌ Erro ao salvar dados do pareamento:", saveError);
+          }
         }
       } catch (err) {
         // Durante o polling, erros (como 404) são normais enquanto não pareado

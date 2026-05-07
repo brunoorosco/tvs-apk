@@ -1,21 +1,49 @@
 import axios from "axios";
 
-// Configure com a URL do seu servidor
 const API_URL =
-  process.env.EXPO_PUBLIC_API_URL || "https://seu-dominio.com/api";
+  process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000/api";
 
 const api = axios.create({
   baseURL: API_URL,
   timeout: 30000,
 });
 
-// Interceptor para logs em desenvolvimento
+// Interceptor para adicionar device token e api token (sempre ativo)
+api.interceptors.request.use(async (config) => {
+  const { useDeviceStore } = await import("../store/deviceStore");
+  const token = useDeviceStore.getState().deviceToken;
+
+  if (token) {
+    config.headers["x-device-token"] = token;
+  }
+
+  const apiToken = process.env.EXPO_PUBLIC_API_TOKEN;
+  if (apiToken) {
+    config.headers["x-api-token"] = apiToken;
+  }
+
+  if (__DEV__) {
+    console.log("token", apiToken);
+  }
+
+  return config;
+});
+
+// Interceptors de log e erro — somente em desenvolvimento
 if (__DEV__) {
   api.interceptors.request.use((config) => {
+    const baseUrl = config.baseURL?.endsWith("/")
+      ? config.baseURL.slice(0, -1)
+      : config.baseURL;
+    const url = config.url?.startsWith("/") ? config.url : `/${config.url}`;
+    const fullUrl = config.url?.startsWith("http") ? config.url : `${baseUrl}${url}`;
     console.log(
-      `%c 🚀 Request: ${config.method?.toUpperCase()} ${config.url}`,
+      `%c 🚀 Request: ${config.method?.toUpperCase()} ${fullUrl}`,
       "color: #0080ff; font-weight: bold;",
-      config.data || ""
+      {
+        data: config.data,
+        headers: config.headers,
+      }
     );
     return config;
   });
@@ -30,8 +58,18 @@ if (__DEV__) {
       return response;
     },
     (error) => {
+      const baseUrl = error.config?.baseURL?.endsWith("/")
+        ? error.config.baseURL.slice(0, -1)
+        : error.config?.baseURL;
+      const url = error.config?.url?.startsWith("/")
+        ? error.config.url
+        : `/${error.config?.url}`;
+      const fullUrl = error.config?.url?.startsWith("http")
+        ? error.config.url
+        : `${baseUrl}${url}`;
+
       console.log(
-        `%c ❌ API Error: ${error.config?.method?.toUpperCase()} ${error.config?.url}`,
+        `%c ❌ API Error: ${error.config?.method?.toUpperCase()} ${fullUrl}`,
         "color: #ff0000; font-weight: bold;",
         error.response?.data || error.message
       );
@@ -40,17 +78,7 @@ if (__DEV__) {
   );
 }
 
-// Interceptor para adicionar device token
-api.interceptors.request.use(async (config) => {
-  const { useDeviceStore } = await import("../store/deviceStore");
-  const token = useDeviceStore.getState().deviceToken;
-  if (token) {
-    config.headers["x-device-token"] = token;
-  }
-  return config;
-});
-
-// Interceptor de erro global (mantido para compatibilidade ou logs extras)
+// Interceptor de erro global para produção
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -58,42 +86,24 @@ api.interceptors.response.use(
       console.error("API Error:", error.response?.status, error.message);
     }
     throw error;
-  },
+  }
 );
 
 export const deviceApi = {
-  /**
-   * Registrar um código de pareamento gerado localmente pelo dispositivo
-   */
   registerPairingCode: (pairingCode: string, deviceInfo: any) =>
     api.post("/devices/pairing-register", { pairingCode, deviceInfo }),
 
-  /**
-   * Verificar se o código gerado foi pareado no dashboard
-   */
   checkPairingStatus: (pairingCode: string) =>
     api.get(`/devices/pairing-status/${pairingCode}`),
 
-  /**
-   * Enviar heartbeat do dispositivo
-   */
-  sendHeartbeat: (data: any) => api.post("/device/heartbeat", data),
+  sendHeartbeat: (data: any) => api.post("/devices/heartbeat", data),
 
-  /**
-   * Desparear dispositivo
-   */
-  unpairDevice: () => api.post("/device/unpair", {}),
+  unpairDevice: () => api.post("/devices/unpair", {}),
 
-  /**
-   * Obter informações de armazenamento
-   */
-  getStorageInfo: () => api.get("/device/storage"),
+  getStorageInfo: () => api.get("/devices/storage"),
 
-  /**
-   * Reportar erro ao servidor
-   */
   reportError: (error: any) =>
-    api.post("/device/error", {
+    api.post("/devices/error", {
       message: error.message,
       stack: error.stack,
       timestamp: new Date().toISOString(),
