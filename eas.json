@@ -1,0 +1,23 @@
+{
+  "build": {
+    "android": {
+      "release": {
+        "distribution": "internal",
+        "android": {
+          "buildType": "release",
+          "usesCleartextTraffic": true
+        }
+      },
+      "preview": {
+        "distribution": "internal"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal"
+      }
+    }
+  }
+}
