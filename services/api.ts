@@ -9,6 +9,37 @@ const api = axios.create({
   timeout: 30000,
 });
 
+// Interceptor para logs em desenvolvimento
+if (__DEV__) {
+  api.interceptors.request.use((config) => {
+    console.log(
+      `%c 🚀 Request: ${config.method?.toUpperCase()} ${config.url}`,
+      "color: #0080ff; font-weight: bold;",
+      config.data || ""
+    );
+    return config;
+  });
+
+  api.interceptors.response.use(
+    (response) => {
+      console.log(
+        `%c ✅ Response: ${response.status} ${response.config.url}`,
+        "color: #00ff00; font-weight: bold;",
+        response.data
+      );
+      return response;
+    },
+    (error) => {
+      console.log(
+        `%c ❌ API Error: ${error.config?.method?.toUpperCase()} ${error.config?.url}`,
+        "color: #ff0000; font-weight: bold;",
+        error.response?.data || error.message
+      );
+      return Promise.reject(error);
+    }
+  );
+}
+
 // Interceptor para adicionar device token
 api.interceptors.request.use(async (config) => {
   const { useDeviceStore } = await import("../store/deviceStore");
@@ -19,11 +50,13 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Interceptor de erro
+// Interceptor de erro global (mantido para compatibilidade ou logs extras)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    console.error("API Error:", error.response?.status, error.message);
+    if (!__DEV__) {
+      console.error("API Error:", error.response?.status, error.message);
+    }
     throw error;
   },
 );
