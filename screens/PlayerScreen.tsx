@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import WebView from "react-native-webview";
 import { deviceApi } from "../services/api";
+import { CommandService } from "../services/commandService";
 import { SyncService } from "../services/syncService";
 import { useDeviceStore } from "../store/deviceStore";
 import { usePlaylistStore } from "../store/playlistStore";
@@ -68,7 +69,9 @@ export default function PlayerScreen() {
   const [isSyncing, setIsSyncing] = useState(false);
   const appState = useRef(AppState.currentState);
   const syncService = useRef(new SyncService()).current;
+  const commandService = useRef(new CommandService()).current;
   const timerRef = useRef<NodeJS.Timeout>();
+  const playerViewRef = useRef<View>(null);
 
   const FALLBACK_IMAGES = [
     "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1920&q=80",
@@ -131,6 +134,26 @@ export default function PlayerScreen() {
   useEffect(() => {
     const syncInterval = setInterval(() => syncPlaylist(), 60 * 1000);
     return () => clearInterval(syncInterval);
+  }, []);
+
+  // Injeta a ref da view no CommandService para o screenshot
+  useEffect(() => {
+    commandService.setPlayerRef(playerViewRef);
+  }, []);
+
+  // Polling de comandos a cada 30 segundos
+  useEffect(() => {
+    const pollCommands = async () => {
+      const command = await commandService.fetchPendingCommand();
+      if (command) {
+        await commandService.executeCommand(command);
+      }
+    };
+
+    // Executa imediatamente ao montar e depois a cada 30s
+    pollCommands();
+    const commandInterval = setInterval(pollCommands, 30 * 1000);
+    return () => clearInterval(commandInterval);
   }, []);
 
   const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
@@ -344,7 +367,7 @@ export default function PlayerScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View ref={playerViewRef} style={styles.container} collapsable={false}>
       {renderMedia()}
     </View>
   );

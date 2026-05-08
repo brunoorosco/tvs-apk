@@ -106,6 +106,24 @@ export const deviceApi = {
       stack: error.stack,
       timestamp: new Date().toISOString(),
     }),
+
+  /** Busca o próximo comando pendente para este dispositivo (retorna 204 se não houver) */
+  getPendingCommand: () =>
+    api.get("/devices/commands", { validateStatus: (s) => s === 200 || s === 204 }),
+
+  /** Envia o screenshot capturado como multipart/form-data */
+  uploadScreenshot: (formData: FormData) =>
+    api.post("/devices/commands/screenshot", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 60000, // upload pode demorar mais
+    }),
+
+  /** Reporta o resultado de execução de um comando (restart, clear_cache, etc.) */
+  reportCommandStatus: (data: {
+    commandId: string;
+    status: "done" | "failed";
+    result?: Record<string, unknown>;
+  }) => api.post("/devices/commands/status", data),
 };
 
 export default api;
