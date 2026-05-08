@@ -1,6 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View, Image } from "react-native";
 import PairingScreen from "../screens/PairingScreen";
 import PlayerScreen from "../screens/PlayerScreen";
 import { BootService } from "../services/bootService";
@@ -35,7 +35,12 @@ export default function Index() {
     return (
       <View style={styles.container}>
         <StatusBar hidden />
-        <ActivityIndicator size="large" color="#fff" />
+        <Image 
+          source={require("../assets/images/logo.png")} 
+          style={styles.logo} 
+          resizeMode="contain"
+        />
+        <ActivityIndicator size="large" color="#fff" style={styles.loader} />
       </View>
     );
   }
@@ -55,4 +60,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  logo: {
+    width: 250,
+    height: 150,
+    marginBottom: 40,
+  },
+  loader: {
+    position: 'absolute',
+    bottom: 50,
+  }
 });
