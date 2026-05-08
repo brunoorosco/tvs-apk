@@ -1,9 +1,7 @@
-import { MMKV } from "react-native-mmkv";
+import * as FileSystem from "expo-file-system";
 import { create } from "zustand";
 
-const storage = new MMKV();
-const CACHE_KEY = "cachedPlaylists";
-const LAST_SYNC_KEY = "lastPlaylistSync";
+const CACHE_FILE = `${FileSystem.cacheDirectory}playlist_cache.json`;
 
 interface MediaItem {
   id: string;
@@ -58,15 +56,58 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
       updatedAt: timestamp,
     }));
     
-    storage.set(CACHE_KEY, JSON.stringify(playlistsWithTime));
-    storage.set(LAST_SYNC_KEY, Date.now().toString());
+    try {
+      const data = {
+        playlists: playlistsWithTime,
+        lastSyncTime: Date.now()
+      };
+      await FileSystem.writeAsStringAsync(CACHE_FILE, JSON.stringify(data));
+    } catch (error) {
+      console.error("Erro ao salvar cache no FileSystem:", error);
+    }
     
-    set({
-      playlists: playlistsWithTime,
-      isLoading: false,
-      lastSyncTime: Date.now(),
-      currentItemIndex: 0,
-      currentPlaylistIndex: 0,
+    set((state) => {
+      let newPlaylistIndex = state.currentPlaylistIndex;
+      let newItemIndex = state.currentItemIndex;
+
+      const currentPlaylistId = state.playlists[state.currentPlaylistIndex]?.id;
+      const currentItemId = state.playlists[state.currentPlaylistIndex]?.items[state.currentItemIndex]?.id;
+
+      if (playlistsWithTime.length > 0) {
+        if (currentPlaylistId) {
+          const foundPlaylistIndex = playlistsWithTime.findIndex(p => p.id === currentPlaylistId);
+          if (foundPlaylistIndex !== -1) {
+            newPlaylistIndex = foundPlaylistIndex;
+            if (currentItemId) {
+              const foundItemIndex = playlistsWithTime[foundPlaylistIndex].items.findIndex(i => i.id === currentItemId);
+              if (foundItemIndex !== -1) {
+                newItemIndex = foundItemIndex;
+              } else {
+                newItemIndex = 0;
+              }
+            }
+          } else {
+            newPlaylistIndex = 0;
+            newItemIndex = 0;
+          }
+        }
+      } else {
+        newPlaylistIndex = 0;
+        newItemIndex = 0;
+      }
+
+      if (newPlaylistIndex >= playlistsWithTime.length) newPlaylistIndex = 0;
+      if (playlistsWithTime[newPlaylistIndex] && newItemIndex >= playlistsWithTime[newPlaylistIndex].items.length) {
+        newItemIndex = 0;
+      }
+
+      return {
+        playlists: playlistsWithTime,
+        isLoading: false,
+        lastSyncTime: Date.now(),
+        currentPlaylistIndex: newPlaylistIndex,
+        currentItemIndex: newItemIndex,
+      };
     });
   },
 
@@ -112,14 +153,15 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
 
   loadFromCache: async () => {
     try {
-      const cached = storage.getString(CACHE_KEY);
-      const lastSync = storage.getString(LAST_SYNC_KEY);
-      
-      if (cached) {
+      const fileInfo = await FileSystem.getInfoAsync(CACHE_FILE);
+      if (fileInfo.exists) {
+        const content = await FileSystem.readAsStringAsync(CACHE_FILE);
+        const data = JSON.parse(content);
+        
         set({
-          playlists: JSON.parse(cached),
+          playlists: data.playlists || [],
           isOffline: true,
-          lastSyncTime: lastSync ? parseInt(lastSync) : null,
+          lastSyncTime: data.lastSyncTime || null,
         });
       }
     } catch (e) {
@@ -128,8 +170,14 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   },
 
   clearCache: async () => {
-    storage.delete(CACHE_KEY);
-    storage.delete(LAST_SYNC_KEY);
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(CACHE_FILE);
+      if (fileInfo.exists) {
+        await FileSystem.deleteAsync(CACHE_FILE);
+      }
+    } catch (error) {
+      console.error("Erro ao deletar cache:", error);
+    }
     set({ playlists: [], lastSyncTime: null });
   },
 

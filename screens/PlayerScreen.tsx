@@ -20,10 +20,8 @@ import { usePlaylistStore } from "../store/playlistStore";
 
 const { width, height } = Dimensions.get("window");
 
-// Task Name for background sync
 const BACKGROUND_SYNC_TASK = "PLAYLIST_BACKGROUND_SYNC";
 
-// Registrar background task para sync
 TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
   try {
     const { data } = await deviceApi.getSyncConfig();
@@ -31,7 +29,6 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
     await syncService.syncMedia(data.playlists);
     return BackgroundFetch.BackgroundFetchResult.NewData;
   } catch (error) {
-    console.error("Background sync failed:", error);
     return BackgroundFetch.BackgroundFetchResult.Failed;
   }
 });
@@ -46,15 +43,12 @@ interface PlayerState {
 
 export default function PlayerScreen() {
   const {
-    playlists,
-    currentPlaylistIndex,
     currentItemIndex,
     isOffline,
     isLoading,
     nextItem,
     previousItem,
     setOffline,
-    setLoading,
     loadFromCache,
     getCurrentPlaylist,
     getCurrentItem,
@@ -62,7 +56,6 @@ export default function PlayerScreen() {
 
   const { deviceId } = useDeviceStore();
 
-  // State
   const [playerState, setPlayerState] = useState<PlayerState>({
     isPlaying: true,
     showControls: false,
@@ -72,72 +65,76 @@ export default function PlayerScreen() {
   });
 
   const [imageKey, setImageKey] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
   const appState = useRef(AppState.currentState);
   const syncService = useRef(new SyncService()).current;
   const timerRef = useRef<NodeJS.Timeout>();
-  const controlsTimeoutRef = useRef<NodeJS.Timeout>();
 
-  // Obter item e playlist atuais
+  const FALLBACK_IMAGES = [
+    "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1920&q=80",
+    "https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=1920&q=80",
+    "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1920&q=80",
+    "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1920&q=80",
+  ];
+
+  const [fallbackIndex, setFallbackIndex] = useState(0);
+
+  useEffect(() => {
+    if (currentItem) return;
+    const interval = setInterval(() => {
+      setFallbackIndex((prev) => (prev + 1) % FALLBACK_IMAGES.length);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [getCurrentItem()]);
+
   const currentPlaylist = getCurrentPlaylist();
   const currentItem = getCurrentItem();
 
-  // Inicializar ao montar componente
   useEffect(() => {
-    const subscription = AppState.addEventListener(
-      "change",
-      handleAppStateChange,
-    );
+    const subscription = AppState.addEventListener("change", handleAppStateChange);
     initializePlayer();
-
     return () => {
       subscription.remove();
       clearTimers();
     };
   }, []);
 
-  // Timer para auto-avançar (imagens/HTML/Streams com duração)
   useEffect(() => {
     clearTimers();
-
-    // Se não houver item, ou for um vídeo (que avança no onEnd), ou um stream infinito
     if (!currentItem) return;
-
-    // Vídeos avançam pelo evento didJustFinish, a menos que tenham uma duração explícita menor que o vídeo
     if (currentItem.type === "video" && !currentItem.duration) return;
-
-    // Streams são infinitos a menos que tenham duração
     if (currentItem.type === "stream" && !currentItem.duration) return;
+    if (currentItem.type === "youtube" && !currentItem.duration) return;
 
-    const duration = currentItem.duration || 10000; // default 10s
-
+    const duration = currentItem.duration || 10000;
     timerRef.current = setTimeout(() => {
       handleNextItem();
     }, duration);
 
     return () => clearTimers();
-  }, [currentItem, currentItemIndex, handleNextItem]);
+  }, [
+    currentItem?.id,
+    currentItem?.duration,
+    currentItem?.type,
+    currentItem?.url,
+    currentItem?.localPath,
+    currentItemIndex,
+    handleNextItem
+  ]);
 
-  // Heartbeat periódico
   useEffect(() => {
-    const heartbeatInterval = setInterval(
-      () => {
-        sendHeartbeat();
-      },
-      30 * 60 * 1000,
-    ); // 30 minutos
-
-    // Enviar heartbeat inicial
+    const heartbeatInterval = setInterval(() => sendHeartbeat(), 30 * 60 * 1000);
     sendHeartbeat();
-
     return () => clearInterval(heartbeatInterval);
-  }, [currentItem]);
+  }, [currentItem?.id]);
+
+  useEffect(() => {
+    const syncInterval = setInterval(() => syncPlaylist(), 60 * 1000);
+    return () => clearInterval(syncInterval);
+  }, []);
 
   const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
-    if (
-      appState.current.match(/inactive|background/) &&
-      nextAppState === "active"
-    ) {
-      console.log("App voltou do background - sincronizando");
+    if (appState.current.match(/inactive|background/) && nextAppState === "active") {
       syncPlaylist();
     }
     appState.current = nextAppState;
@@ -145,21 +142,18 @@ export default function PlayerScreen() {
 
   const clearTimers = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
   };
 
   const initializePlayer = async () => {
-    setLoading(true);
+    setIsSyncing(true);
     try {
       await syncPlaylist();
       await registerBackgroundSync();
     } catch (error) {
-      console.error("Erro ao inicializar player:", error);
-      // Tentar usar cache
       loadFromCache();
       setOffline(true);
     } finally {
-      setLoading(false);
+      setIsSyncing(false);
     }
   };
 
@@ -169,7 +163,6 @@ export default function PlayerScreen() {
       await syncService.syncMedia(data.playlists);
       setOffline(false);
     } catch (error) {
-      console.error("Sync failed:", error);
       loadFromCache();
       setOffline(true);
     }
@@ -178,30 +171,25 @@ export default function PlayerScreen() {
   const registerBackgroundSync = async () => {
     try {
       await BackgroundFetch.registerTaskAsync(BACKGROUND_SYNC_TASK, {
-        minimumInterval: 5 * 60, // 5 minutos
+        minimumInterval: 5 * 60,
         stopOnTerminate: false,
         startOnBoot: true,
       });
-    } catch (error) {
-      console.warn("Background fetch registration failed:", error);
-    }
+    } catch (error) {}
   };
 
   const sendHeartbeat = async () => {
     try {
       const stats = await syncService.getStorageStats();
-
       await deviceApi.sendHeartbeat({
-        deviceId,
+        deviceUid: deviceId,
         status: "online",
         timestamp: new Date().toISOString(),
         currentlyPlaying: currentItem?.id,
         storageUsed: stats.used,
         storageTotal: stats.total,
       });
-    } catch (error) {
-      console.warn("Heartbeat failed:", error);
-    }
+    } catch (error) {}
   };
 
   const handleNextItem = useCallback(() => {
@@ -218,65 +206,35 @@ export default function PlayerScreen() {
     handleNextItem();
   }, [handleNextItem]);
 
-  const handleImageError = (error: any) => {
-    console.error("Erro ao carregar imagem:", error);
-    setPlayerState((prev) => ({
-      ...prev,
-      error: "Erro ao carregar imagem",
-    }));
-
-    // Pular para o próximo item após 5 segundos em caso de erro
-    setTimeout(() => {
-      setPlayerState((prev) => ({ ...prev, error: null }));
-      handleNextItem();
-    }, 5000);
+  const getYoutubeEmbedUrl = (url: string) => {
+    let videoId = "";
+    if (url.includes("v=")) videoId = url.split("v=")[1].split("&")[0];
+    else if (url.includes("youtu.be/")) videoId = url.split("youtu.be/")[1].split("?")[0];
+    else if (url.includes("embed/")) videoId = url.split("embed/")[1].split("?")[0];
+    
+    return `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${videoId}&mute=0&origin=https://www.youtube.com`;
   };
 
-  const handleVideoError = (error: any) => {
-    console.error("Erro ao carregar vídeo:", error);
-    setPlayerState((prev) => ({
-      ...prev,
-      error: "Erro ao carregar vídeo",
-    }));
-
-    // Pular para o próximo item após 5 segundos em caso de erro
-    setTimeout(() => {
-      setPlayerState((prev) => ({ ...prev, error: null }));
-      handleNextItem();
-    }, 5000);
-  };
-
-  if (isLoading) {
+  if (isLoading && !currentItem) {
     return (
       <View style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={styles.loadingText}>Carregando playlist...</Text>
-      </View>
-    );
-  }
-
-  if (!currentItem || !currentPlaylist) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <Text style={styles.emptyText}>Nenhum conteúdo disponível</Text>
-        <Text style={styles.emptySubtext}>
-          Aguardando atualização do servidor
-        </Text>
-      </View>
-    );
-  }
-
-  if (playerState.error) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <Text style={styles.errorText}>❌ {playerState.error}</Text>
-        <Text style={styles.errorSubtext}>Próximo item em 5 segundos...</Text>
       </View>
     );
   }
 
   const renderMedia = () => {
-    if (!currentItem) return null;
+    if (!currentItem) {
+      return (
+        <View style={styles.mediaContainer}>
+          <Image
+            source={{ uri: FALLBACK_IMAGES[fallbackIndex] }}
+            style={styles.media}
+            resizeMode="cover"
+          />
+        </View>
+      );
+    }
 
     switch (currentItem.type) {
       case "image":
@@ -284,25 +242,11 @@ export default function PlayerScreen() {
           <View style={styles.mediaContainer}>
             <Image
               key={imageKey}
-              source={{
-                uri: currentItem.localPath || currentItem.url,
-              }}
+              source={{ uri: currentItem.localPath || currentItem.url }}
               style={styles.media}
               resizeMode="cover"
-              onError={handleImageError}
+              onError={() => handleNextItem()}
             />
-            {currentItem.metadata?.title && (
-              <View style={styles.mediaOverlay}>
-                <Text style={styles.mediaTitle}>
-                  {currentItem.metadata.title}
-                </Text>
-                {currentItem.metadata?.description && (
-                  <Text style={styles.mediaDescription}>
-                    {currentItem.metadata.description}
-                  </Text>
-                )}
-              </View>
-            )}
           </View>
         );
 
@@ -310,34 +254,60 @@ export default function PlayerScreen() {
         return (
           <View style={styles.mediaContainer}>
             <Video
-              source={{
-                uri: currentItem.localPath || currentItem.url,
-              }}
+              source={{ uri: currentItem.localPath || currentItem.url }}
               style={styles.media}
               resizeMode={ResizeMode.COVER}
               shouldPlay={playerState.isPlaying}
-              isLooping={false}
               onPlaybackStatusUpdate={(status) => {
-                if (status.isLoaded) {
-                  if (status.didJustFinish) {
-                    handleVideoEnd();
-                  }
-                  if (status.durationMillis) {
-                    setPlayerState((prev) => ({
-                      ...prev,
-                      duration: status.durationMillis,
-                      currentTime: status.positionMillis,
-                    }));
-                  }
-                } else if (status.error) {
-                  handleVideoError(status.error);
-                }
+                if (status.isLoaded && status.didJustFinish) handleVideoEnd();
               }}
-              onError={handleVideoError}
-              progressUpdateIntervalMillis={1000}
+              onError={() => handleNextItem()}
             />
           </View>
         );
+
+      case "youtube": {
+        const videoId = (function() {
+          const url = currentItem.url;
+          if (url.includes("v=")) return url.split("v=")[1].split("&")[0];
+          if (url.includes("youtu.be/")) return url.split("youtu.be/")[1].split("?")[0];
+          if (url.includes("embed/")) return url.split("embed/")[1].split("?")[0];
+          return "";
+        })();
+        
+        const html = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+              <style>
+                body { margin: 0; padding: 0; background-color: #000; overflow: hidden; height: 100vh; }
+                iframe { width: 100vw; height: 100vh; border: none; pointer-events: none; }
+              </style>
+            </head>
+            <body>
+              <iframe 
+                src="https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${videoId}&mute=0&playsinline=1" 
+                allow="autoplay; fullscreen"
+              ></iframe>
+            </body>
+          </html>
+        `;
+
+        return (
+          <View style={styles.mediaContainer}>
+            <WebView
+              source={{ html, baseUrl: "https://www.youtube.com" }}
+              style={styles.media}
+              originWhitelist={["*"]}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              allowsInlineMediaPlayback={true}
+              mediaPlaybackRequiresUserAction={false}
+            />
+          </View>
+        );
+      }
 
       case "html":
         return (
@@ -348,12 +318,8 @@ export default function PlayerScreen() {
               originWhitelist={["*"]}
               javaScriptEnabled={true}
               domStorageEnabled={true}
-              startInLoadingState={true}
-              renderLoading={() => (
-                <View style={styles.webViewLoader}>
-                  <ActivityIndicator size="large" color="#fff" />
-                </View>
-              )}
+              allowsInlineMediaPlayback={true}
+              mediaPlaybackRequiresUserAction={false}
             />
           </View>
         );
@@ -362,14 +328,12 @@ export default function PlayerScreen() {
         return (
           <View style={styles.mediaContainer}>
             <Video
-              source={{
-                uri: currentItem.url,
-              }}
+              source={{ uri: currentItem.url }}
               style={styles.media}
               resizeMode={ResizeMode.COVER}
               shouldPlay={playerState.isPlaying}
               isLooping={true}
-              onError={handleVideoError}
+              onError={() => handleNextItem()}
             />
           </View>
         );
@@ -381,138 +345,14 @@ export default function PlayerScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Offline Banner */}
-      {isOffline && (
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineText}>📡 MODO OFFLINE</Text>
-        </View>
-      )}
-
-      {/* Media Rendering */}
       {renderMedia()}
-
-      {/* Debug Info (somente em modo dev) */}
-      {__DEV__ && (
-        <View style={styles.debugInfo}>
-          <Text style={styles.debugText}>
-            {currentPlaylist.name} • {currentItemIndex + 1}/
-            {currentPlaylist.items.length}
-          </Text>
-          <Text style={styles.debugText} numberOfLines={1}>
-            {currentItem.metadata?.title || currentItem.url.split("/").pop()}
-          </Text>
-        </View>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
-  center: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  mediaContainer: {
-    flex: 1,
-    position: "relative",
-    overflow: "hidden",
-  },
-  media: {
-    width,
-    height,
-  },
-  mediaOverlay: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    paddingHorizontal: 24,
-    paddingVertical: 32,
-  },
-  mediaTitle: {
-    color: "#fff",
-    fontSize: 32,
-    fontWeight: "bold",
-    marginBottom: 8,
-  },
-  mediaDescription: {
-    color: "#bbb",
-    fontSize: 18,
-    lineHeight: 24,
-  },
-  offlineBanner: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "rgba(220, 38, 38, 0.95)",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    zIndex: 100,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  offlineText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  loadingText: {
-    color: "#888",
-    fontSize: 18,
-    marginTop: 16,
-  },
-  emptyText: {
-    color: "#666",
-    fontSize: 28,
-    fontWeight: "bold",
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    color: "#888",
-    fontSize: 16,
-  },
-  errorText: {
-    color: "#ff6b6b",
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 12,
-  },
-  errorSubtext: {
-    color: "#aaa",
-    fontSize: 16,
-  },
-  debugInfo: {
-    position: "absolute",
-    bottom: 16,
-    left: 16,
-    right: 16,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    padding: 12,
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: "#2563eb",
-  },
-  debugText: {
-    color: "#888",
-    fontSize: 12,
-    fontFamily: "Courier New",
-    lineHeight: 18,
-  },
-  webViewLoader: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "#000",
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  container: { flex: 1, backgroundColor: "#000" },
+  center: { justifyContent: "center", alignItems: "center" },
+  mediaContainer: { flex: 1, position: "relative", overflow: "hidden" },
+  media: { width, height },
 });

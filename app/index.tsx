@@ -27,8 +27,7 @@ export default function Index() {
     initializeApp();
 
     return () => {
-      // Cleanup na desmontagem
-      BootService.stopBackgroundTasks().catch(console.error);
+      // Cleanup opcional se necessário no futuro
     };
   }, []);
 

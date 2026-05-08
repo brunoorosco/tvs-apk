@@ -14,16 +14,12 @@ api.interceptors.request.use(async (config) => {
   const token = useDeviceStore.getState().deviceToken;
 
   if (token) {
-    config.headers["x-device-token"] = token;
+    config.headers["x-device-uid"] = token;
   }
 
   const apiToken = process.env.EXPO_PUBLIC_API_TOKEN;
   if (apiToken) {
     config.headers["x-api-token"] = apiToken;
-  }
-
-  if (__DEV__) {
-    console.log("token", apiToken);
   }
 
   return config;
