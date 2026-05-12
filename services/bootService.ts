@@ -54,7 +54,7 @@ export class BootService {
           const deviceStore = useDeviceStore.getState();
           if (deviceStore.isPaired) {
             await deviceApi.sendHeartbeat({
-              deviceId: deviceStore.deviceId,
+              deviceUid: deviceStore.deviceId,
               timestamp: new Date().toISOString(),
               status: "online",
             });

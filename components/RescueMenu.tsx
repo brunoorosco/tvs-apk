@@ -20,18 +20,17 @@ export const RescueMenu: React.FC<RescueMenuProps> = ({ onFinish }) => {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          onFinish();
-          return 0;
-        }
-        return prev - 1;
-      });
+      setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [onFinish]);
+  }, []);
+
+  useEffect(() => {
+    if (countdown === 0) {
+      onFinish();
+    }
+  }, [countdown, onFinish]);
 
   const handleUnpair = async () => {
     setIsUnpairing(true);

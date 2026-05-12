@@ -9,8 +9,7 @@ import {
   Dimensions,
   Image,
   StyleSheet,
-  Text,
-  View,
+  View
 } from "react-native";
 import WebView from "react-native-webview";
 import { deviceApi } from "../services/api";
@@ -199,14 +198,15 @@ export default function PlayerScreen() {
         stopOnTerminate: false,
         startOnBoot: true,
       });
-    } catch (error) {}
+    } catch (error) { }
   };
 
   const sendHeartbeat = async () => {
+    console.log("sendHeartbeat", deviceId);
     try {
       const stats = await syncService.getStorageStats();
       const response = await deviceApi.sendHeartbeat({
-        deviceId: deviceId,
+        deviceUid: deviceId,
         status: "online",
         timestamp: new Date().toISOString(),
         currentlyPlaying: currentItem?.id,
@@ -245,7 +245,7 @@ export default function PlayerScreen() {
     if (url.includes("v=")) videoId = url.split("v=")[1].split("&")[0];
     else if (url.includes("youtu.be/")) videoId = url.split("youtu.be/")[1].split("?")[0];
     else if (url.includes("embed/")) videoId = url.split("embed/")[1].split("?")[0];
-    
+
     return `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${videoId}&mute=0&origin=https://www.youtube.com`;
   };
 
@@ -301,14 +301,14 @@ export default function PlayerScreen() {
         );
 
       case "youtube": {
-        const videoId = (function() {
+        const videoId = (function () {
           const url = currentItem.url;
           if (url.includes("v=")) return url.split("v=")[1].split("&")[0];
           if (url.includes("youtu.be/")) return url.split("youtu.be/")[1].split("?")[0];
           if (url.includes("embed/")) return url.split("embed/")[1].split("?")[0];
           return "";
         })();
-        
+
         const html = `
           <!DOCTYPE html>
           <html>

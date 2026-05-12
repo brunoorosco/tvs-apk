@@ -10,6 +10,7 @@ export type CommandType =
   | "sync_playlist"
   | "sync"
   | "unpair"
+  | "preview"
   | "update-config";
 
 export interface PendingCommand {
@@ -97,6 +98,10 @@ export class CommandService {
         await this.handleUnpair(id);
         break;
 
+      case "preview":
+        await this.handlePreview(id, command.payload);
+        break;
+
       default:
         console.warn(`[CommandService] Comando desconhecido: ${command.type}`);
         await this.reportStatus(id, "failed", {
@@ -148,6 +153,60 @@ export class CommandService {
       await this.reportStatus(commandId, "failed", {
         error: error?.message ?? "Erro desconhecido ao capturar tela",
       });
+    }
+  }
+
+  private async handlePreview(commandId: string, payload: any): Promise<void> {
+    try {
+      const duration = (payload?.duration as number) || 30000; // 30s default
+      const interval = (payload?.interval as number) || 3000;  // 3s default
+      
+      console.log(`[CommandService] Iniciando preview: ${duration}ms, intervalo ${interval}ms`);
+      
+      await this.reportStatus(commandId, "done", { message: "Preview iniciado" });
+
+      const startTime = Date.now();
+      
+      // Loop de capturas
+      const runPreview = async () => {
+        if (Date.now() - startTime > duration) {
+          console.log("[CommandService] Preview finalizado por tempo");
+          return;
+        }
+
+        try {
+          if (this.playerRef?.current) {
+            const localUri = await captureRef(this.playerRef, {
+              format: "jpg",
+              quality: 0.6, // Qualidade menor para preview rápido
+              result: "tmpfile",
+            });
+
+            const formData = new FormData();
+            formData.append("commandId", commandId);
+            formData.append("isPreview", "true");
+            // @ts-ignore
+            formData.append("file", {
+              uri: localUri,
+              name: `preview-${Date.now()}.jpg`,
+              type: "image/jpeg",
+            });
+
+            await deviceApi.uploadScreenshot(formData);
+            await FileSystem.deleteAsync(localUri, { idempotent: true }).catch(() => {});
+          }
+        } catch (err) {
+          console.error("[CommandService] Erro no loop de preview:", err);
+        }
+
+        // Agenda a próxima captura
+        setTimeout(runPreview, interval);
+      };
+
+      runPreview();
+    } catch (error: any) {
+      console.error("[CommandService] Erro ao iniciar preview:", error);
+      await this.reportStatus(commandId, "failed", { error: error?.message });
     }
   }
 
