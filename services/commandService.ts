@@ -24,9 +24,16 @@ const SCREENSHOTS_DIR = `${FileSystem.cacheDirectory}screenshots/`;
 export class CommandService {
   /** Referência para a view principal a ser capturada (injetada pelo PlayerScreen) */
   private playerRef: React.RefObject<any> | null = null;
+  
+  /** Callback para disparar uma atualização forçada da UI/Playlist */
+  private onRefresh?: () => Promise<void>;
 
   setPlayerRef(ref: React.RefObject<any>) {
     this.playerRef = ref;
+  }
+
+  setOnRefresh(callback: () => Promise<void>) {
+    this.onRefresh = callback;
   }
 
   /** Busca o próximo comando pendente do servidor. Retorna null se não houver. */
@@ -79,8 +86,11 @@ export class CommandService {
 
       case "sync":
       case "sync_playlist":
-        // Notifica sucesso imediatamente; o ciclo normal de sync cuida da atualização
-        await this.reportStatus(id, "done", { message: "Sync agendado" });
+        // Notifica sucesso e força o refresh da playlist
+        await this.reportStatus(id, "done", { message: "Sync iniciado" });
+        if (this.onRefresh) {
+          await this.onRefresh();
+        }
         break;
 
       case "unpair":
@@ -178,7 +188,13 @@ export class CommandService {
     try {
       const { usePlaylistStore } = await import("../store/playlistStore");
       await usePlaylistStore.getState().clearCache();
-      await this.reportStatus(commandId, "done", { message: "Cache limpo com sucesso" });
+      
+      // Força a busca de uma nova playlist após limpar o cache
+      if (this.onRefresh) {
+        await this.onRefresh();
+      }
+
+      await this.reportStatus(commandId, "done", { message: "Cache limpo e playlist atualizada" });
     } catch (error: any) {
       await this.reportStatus(commandId, "failed", {
         error: error?.message ?? "Falha ao limpar cache",

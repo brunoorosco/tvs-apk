@@ -136,9 +136,10 @@ export default function PlayerScreen() {
     return () => clearInterval(syncInterval);
   }, []);
 
-  // Injeta a ref da view no CommandService para o screenshot
+  // Injeta a ref da view no CommandService para o screenshot e o callback de refresh
   useEffect(() => {
     commandService.setPlayerRef(playerViewRef);
+    commandService.setOnRefresh(syncPlaylist);
   }, []);
 
   // Polling de comandos a cada 30 segundos
