@@ -176,9 +176,11 @@ export class CommandService {
 
         try {
           if (this.playerRef?.current) {
+            // Captura com resolução reduzida para ser MUITO mais rápido
             const localUri = await captureRef(this.playerRef, {
               format: "jpg",
-              quality: 0.6, // Qualidade menor para preview rápido
+              quality: 0.4, // Qualidade baixa para velocidade
+              width: 480,   // Resolução SD para preview
               result: "tmpfile",
             });
 

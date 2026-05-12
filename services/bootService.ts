@@ -108,10 +108,10 @@ export class BootService {
         }
       }
 
-      playlistStore.setLoading(false);
+      usePlaylistStore.getState().setLoading(false);
     } catch (error) {
       console.error("Erro ao carregar dados iniciais:", error);
-      playlistStore.setLoading(false);
+      usePlaylistStore.getState().setLoading(false);
     }
   }
 

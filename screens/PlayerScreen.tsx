@@ -14,6 +14,7 @@ import {
 import WebView from "react-native-webview";
 import { deviceApi } from "../services/api";
 import { CommandService } from "../services/commandService";
+import { socketService } from "../services/socketService";
 import { SyncService } from "../services/syncService";
 import { useDeviceStore } from "../store/deviceStore";
 import { usePlaylistStore } from "../store/playlistStore";
@@ -92,6 +93,16 @@ export default function PlayerScreen() {
   const currentPlaylist = getCurrentPlaylist();
   const currentItem = getCurrentItem();
 
+  const handleNextItem = useCallback(() => {
+    nextItem();
+    setImageKey((prev) => prev + 1);
+  }, [nextItem]);
+
+  const handlePreviousItem = useCallback(() => {
+    previousItem();
+    setImageKey((prev) => prev + 1);
+  }, [previousItem]);
+
   useEffect(() => {
     const subscription = AppState.addEventListener("change", handleAppStateChange);
     initializePlayer();
@@ -139,9 +150,20 @@ export default function PlayerScreen() {
   useEffect(() => {
     commandService.setPlayerRef(playerViewRef);
     commandService.setOnRefresh(syncPlaylist);
+    // Compartilha o mesmo commandService com o socket para não duplicar lógica
+    socketService.setPlayerRef(playerViewRef);
+    socketService.setOnRefresh(syncPlaylist);
   }, []);
 
-  // Polling de comandos a cada 30 segundos
+  // Conecta ao Socket.io para receber comandos em tempo real
+  useEffect(() => {
+    socketService.connect();
+    return () => {
+      socketService.disconnect();
+    };
+  }, []);
+
+  // Polling de comandos a cada 30 segundos (fallback HTTP)
   useEffect(() => {
     const pollCommands = async () => {
       const command = await commandService.fetchPendingCommand();
@@ -226,15 +248,6 @@ export default function PlayerScreen() {
     }
   };
 
-  const handleNextItem = useCallback(() => {
-    nextItem();
-    setImageKey((prev) => prev + 1);
-  }, [nextItem]);
-
-  const handlePreviousItem = useCallback(() => {
-    previousItem();
-    setImageKey((prev) => prev + 1);
-  }, [previousItem]);
 
   const handleVideoEnd = useCallback(() => {
     handleNextItem();
