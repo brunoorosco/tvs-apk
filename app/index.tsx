@@ -6,10 +6,12 @@ import PlayerScreen from "../screens/PlayerScreen";
 import { BootService } from "../services/bootService";
 import { useDeviceStore } from "../store/deviceStore";
 import { usePlaylistStore } from "../store/playlistStore";
+import { RescueMenu } from "../components/RescueMenu";
 
 export default function Index() {
   const { isPaired } = useDeviceStore();
   const { isLoading } = usePlaylistStore();
+  const [showRescueMenu, setShowRescueMenu] = React.useState(true);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -31,24 +33,23 @@ export default function Index() {
     };
   }, []);
 
-  if (isLoading) {
-    return (
-      <View style={styles.container}>
-        <StatusBar hidden />
-        <Image 
-          source={require("../assets/images/logo.png")} 
-          style={styles.logo} 
-          resizeMode="contain"
-        />
-        <ActivityIndicator size="large" color="#fff" style={styles.loader} />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <StatusBar hidden />
-      {!isPaired ? <PairingScreen /> : <PlayerScreen />}
+      {showRescueMenu && <RescueMenu onFinish={() => setShowRescueMenu(false)} />}
+      
+      {isLoading ? (
+        <View style={styles.container}>
+          <Image 
+            source={require("../assets/images/logo.png")} 
+            style={styles.logo} 
+            resizeMode="contain"
+          />
+          <ActivityIndicator size="large" color="#fff" style={styles.loader} />
+        </View>
+      ) : (
+        !isPaired ? <PairingScreen /> : <PlayerScreen />
+      )}
     </View>
   );
 }

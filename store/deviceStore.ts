@@ -58,9 +58,9 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
       const deviceId = await SecureStore.getItemAsync(DEVICE_ID_KEY);
       const deviceName = await SecureStore.getItemAsync(DEVICE_NAME_KEY);
-      const deviceUid = await SecureStore.getItemAsync(DEVICE_UID_KEY);
       
-      set({ deviceUid });
+      // Garantir que o UID esteja carregado ou gerado
+      await get().getOrGenerateUid();
 
       if (token && deviceId) {
         set({ isPaired: true, deviceToken: token, deviceId, deviceName });
