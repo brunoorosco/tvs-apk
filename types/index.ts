@@ -71,7 +71,7 @@ export interface HeartbeatData {
 export interface HeartbeatResponse {
   commands?: Array<{
     id: string;
-    type: "sync" | "restart" | "unpair" | "update-config";
+    type: "sync" | "restart" | "unpair" | "update-config" | "screenshot" | "clear_cache" | "sync_playlist";
     payload?: any;
   }>;
   nextHeartbeatIn?: number; // milliseconds

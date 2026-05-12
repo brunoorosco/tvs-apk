@@ -204,15 +204,25 @@ export default function PlayerScreen() {
   const sendHeartbeat = async () => {
     try {
       const stats = await syncService.getStorageStats();
-      await deviceApi.sendHeartbeat({
-        deviceUid: deviceId,
+      const response = await deviceApi.sendHeartbeat({
+        deviceId: deviceId,
         status: "online",
         timestamp: new Date().toISOString(),
         currentlyPlaying: currentItem?.id,
         storageUsed: stats.used,
         storageTotal: stats.total,
       });
-    } catch (error) {}
+
+      // Processa comandos retornados na resposta do heartbeat
+      const commands = response.data?.commands;
+      if (commands && Array.isArray(commands)) {
+        for (const cmd of commands) {
+          await commandService.executeCommand(cmd);
+        }
+      }
+    } catch (error) {
+      if (__DEV__) console.error("[PlayerScreen] Erro no heartbeat:", error);
+    }
   };
 
   const handleNextItem = useCallback(() => {

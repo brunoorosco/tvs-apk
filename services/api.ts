@@ -120,7 +120,8 @@ export const deviceApi = {
 
   /** Reporta o resultado de execução de um comando (restart, clear_cache, etc.) */
   reportCommandStatus: (data: {
-    commandId: string;
+    id?: string;
+    commandId?: string;
     status: "done" | "failed";
     result?: Record<string, unknown>;
   }) => api.post("/devices/commands/status", data),

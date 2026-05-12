@@ -3,11 +3,19 @@ import * as Updates from "expo-updates";
 import { captureRef } from "react-native-view-shot";
 import { deviceApi } from "./api";
 
-export type CommandType = "restart" | "screenshot" | "clear_cache" | "sync_playlist";
+export type CommandType =
+  | "restart"
+  | "screenshot"
+  | "clear_cache"
+  | "sync_playlist"
+  | "sync"
+  | "unpair"
+  | "update-config";
 
 export interface PendingCommand {
-  commandId: string;
-  type: CommandType;
+  id?: string;
+  commandId?: string;
+  type: CommandType | string;
   payload: Record<string, unknown> | null;
 }
 
@@ -27,7 +35,17 @@ export class CommandService {
       const response = await deviceApi.getPendingCommand();
 
       // 204 = sem comandos
-      if (response.status === 204) return null;
+      if (response.status === 204 || !response.data) return null;
+
+      // Se for um array, pega o primeiro
+      if (Array.isArray(response.data)) {
+        return response.data.length > 0 ? response.data[0] : null;
+      }
+
+      // Se for um objeto contendo "commands" (como no heartbeat)
+      if (response.data.commands && Array.isArray(response.data.commands)) {
+        return response.data.commands.length > 0 ? response.data.commands[0] : null;
+      }
 
       return response.data as PendingCommand;
     } catch (error) {
@@ -38,28 +56,40 @@ export class CommandService {
 
   /** Processa um comando recebido do servidor */
   async executeCommand(command: PendingCommand): Promise<void> {
-    console.log(`[CommandService] Executando comando: ${command.type} (${command.commandId})`);
+    const id = command.id || command.commandId;
+    if (!id) {
+      console.warn("[CommandService] Comando recebido sem ID:", command);
+      return;
+    }
+
+    console.log(`[CommandService] Executando comando: ${command.type} (${id})`);
 
     switch (command.type) {
       case "screenshot":
-        await this.handleScreenshot(command.commandId);
+        await this.handleScreenshot(id);
         break;
 
       case "restart":
-        await this.handleRestart(command.commandId);
+        await this.handleRestart(id);
         break;
 
       case "clear_cache":
-        await this.handleClearCache(command.commandId);
+        await this.handleClearCache(id);
         break;
 
+      case "sync":
       case "sync_playlist":
         // Notifica sucesso imediatamente; o ciclo normal de sync cuida da atualização
-        await this.reportStatus(command.commandId, "done", { message: "Sync agendado" });
+        await this.reportStatus(id, "done", { message: "Sync agendado" });
+        break;
+
+      case "unpair":
+        await this.handleUnpair(id);
         break;
 
       default:
-        await this.reportStatus(command.commandId, "failed", {
+        console.warn(`[CommandService] Comando desconhecido: ${command.type}`);
+        await this.reportStatus(id, "failed", {
           error: `Comando desconhecido: ${command.type}`,
         });
     }
@@ -92,16 +122,17 @@ export class CommandService {
       // 3. Enviar ao servidor via multipart
       const formData = new FormData();
       formData.append("commandId", commandId);
+      // @ts-ignore - Tipagem de FormData no React Native é especial para arquivos
       formData.append("file", {
         uri: localUri,
         name: `screenshot-${Date.now()}.jpg`,
         type: "image/jpeg",
-      } as any);
+      });
 
       await deviceApi.uploadScreenshot(formData);
 
       // 4. Limpar arquivo temporário
-      await FileSystem.deleteAsync(localUri, { idempotent: true });
+      await FileSystem.deleteAsync(localUri, { idempotent: true }).catch(() => {});
     } catch (error: any) {
       console.error("[CommandService] Erro no screenshot:", error);
       await this.reportStatus(commandId, "failed", {
@@ -112,17 +143,31 @@ export class CommandService {
 
   private async handleRestart(commandId: string): Promise<void> {
     try {
-      // Reporta sucesso ANTES de reiniciar (após o restart não tem mais como reportar)
+      // Reporta sucesso ANTES de reiniciar
       await this.reportStatus(commandId, "done", { message: "Reiniciando app..." });
 
       // Aguarda um instante para a requisição sair
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((resolve) => setTimeout(() => resolve(null), 1000));
 
-      // Recarrega o bundle JS (expo-updates)
-      await Updates.reloadAsync();
+      // 1. Tenta via DevSettings (funciona em quase todos os ambientes de dev/prod)
+      try {
+        const { DevSettings } = require('react-native');
+        if (DevSettings && typeof DevSettings.reload === 'function') {
+          DevSettings.reload();
+          return;
+        }
+      } catch (e) {
+        // Silencia erro se DevSettings não estiver disponível
+      }
+
+      // 2. Tenta via expo-updates (reloadAsync)
+      if (Updates.reloadAsync && typeof Updates.reloadAsync === 'function') {
+        // Usa uma referência limpa para evitar problemas de contexto
+        const reloadFn = Updates.reloadAsync;
+        await reloadFn();
+      }
     } catch (error: any) {
       console.error("[CommandService] Erro no restart:", error);
-      // Se reloadAsync falhar (ex: dev mode) apenas reporta
       await this.reportStatus(commandId, "failed", {
         error: error?.message ?? "Falha ao reiniciar",
       });
@@ -141,6 +186,19 @@ export class CommandService {
     }
   }
 
+  private async handleUnpair(commandId: string): Promise<void> {
+    try {
+      const { useDeviceStore } = await import("../store/deviceStore");
+      await this.reportStatus(commandId, "done", { message: "Despareando dispositivo..." });
+      await new Promise((r) => setTimeout(r, 1000));
+      await useDeviceStore.getState().clearPairing();
+    } catch (error: any) {
+      await this.reportStatus(commandId, "failed", {
+        error: error?.message ?? "Falha ao desparear",
+      });
+    }
+  }
+
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
   private async reportStatus(
@@ -149,7 +207,13 @@ export class CommandService {
     result?: Record<string, unknown>
   ): Promise<void> {
     try {
-      await deviceApi.reportCommandStatus({ commandId, status, result });
+      // Envia ambos para garantir compatibilidade com o backend
+      await deviceApi.reportCommandStatus({
+        id: commandId,
+        commandId: commandId,
+        status,
+        result,
+      });
     } catch (error) {
       console.error("[CommandService] Falha ao reportar status do comando:", error);
     }
