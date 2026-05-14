@@ -8,9 +8,9 @@ export type CommandType =
   | "screenshot"
   | "clear_cache"
   | "sync_playlist"
-  | "sync"
   | "unpair"
   | "preview"
+  | "stop_preview"
   | "update-config";
 
 export interface PendingCommand {
@@ -28,6 +28,9 @@ export class CommandService {
   
   /** Callback para disparar uma atualização forçada da UI/Playlist */
   private onRefresh?: () => Promise<void>;
+  
+  /** Flag para controlar o loop de preview ativo */
+  private previewActive = false;
 
   setPlayerRef(ref: React.RefObject<any>) {
     this.playerRef = ref;
@@ -102,6 +105,10 @@ export class CommandService {
         await this.handlePreview(id, command.payload);
         break;
 
+      case "stop_preview":
+        await this.handleStopPreview(id);
+        break;
+
       default:
         console.warn(`[CommandService] Comando desconhecido: ${command.type}`);
         await this.reportStatus(id, "failed", {
@@ -166,11 +173,13 @@ export class CommandService {
       await this.reportStatus(commandId, "done", { message: "Preview iniciado" });
 
       const startTime = Date.now();
+      this.previewActive = true;
       
       // Loop de capturas
       const runPreview = async () => {
-        if (Date.now() - startTime > duration) {
-          console.log("[CommandService] Preview finalizado por tempo");
+        if (!this.previewActive || Date.now() - startTime > duration) {
+          console.log("[CommandService] Preview finalizado");
+          this.previewActive = false;
           return;
         }
 
@@ -208,6 +217,16 @@ export class CommandService {
       runPreview();
     } catch (error: any) {
       console.error("[CommandService] Erro ao iniciar preview:", error);
+      await this.reportStatus(commandId, "failed", { error: error?.message });
+    }
+  }
+
+  private async handleStopPreview(commandId: string): Promise<void> {
+    try {
+      this.previewActive = false;
+      console.log("[CommandService] Preview interrompido pelo usuário");
+      await this.reportStatus(commandId, "done", { message: "Preview cancelado" });
+    } catch (error: any) {
       await this.reportStatus(commandId, "failed", { error: error?.message });
     }
   }
